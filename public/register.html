@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="register-container">
+        <h2>Регистрация</h2>
+        <form id="registerForm">
+            <label for="fullName">ФИО</label>
+            <input type="text" id="fullName" name="fullName" placeholder="Введите ФИО" required>
+
+            <label for="city">Город</label>
+            <input type="text" id="city" name="city" placeholder="Введите город" required>
+
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="Введите email" required>
+
+            <label for="phone">Номер телефона</label>
+            <input type="tel" id="phone" name="phone" maxlength="12" required>            
+
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" placeholder="Введите пароль" required>
+
+            <label for="repeatPassword">Повторить пароль</label>
+            <input type="password" id="repeatPassword" name="repeatPassword" placeholder="Повторите пароль" required>
+
+            <button type="submit">Зарегистрироваться</button>
+            <p style="text-align: center; margin-top: 10px;">Есть аккаунт? <a href="login.html">Авторизироваться</a></p>
+        </form>
+    </div>
+
+    <script>
+        const phoneInput = document.getElementById('phone');
+        const fullNameInput = document.getElementById('fullName');
+        const cityInput = document.getElementById('city');
+        
+        // Устанавливаем начальное значение для телефона
+        phoneInput.value = '+7';
+
+        // Проверка ФИО (только буквы и минимум два слова)
+        fullNameInput.addEventListener('input', (e) => {
+            // Удаляем все, кроме букв и пробелов
+            e.target.value = e.target.value.replace(/[^а-яА-Яa-zA-Z\s]/g, '');
+        });
+
+        // Проверка города (только буквы)
+        cityInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^а-яА-Яa-zA-Z]/g, '');
+        });
+
+        // Блокируем возможность удаления +7
+        phoneInput.addEventListener('input', (e) => {
+            if (!phoneInput.value.startsWith('+7')) {
+                phoneInput.value = '+7';
+            }
+            // Удаляем все, кроме цифр после +7
+            if (phoneInput.value.length > 2) {
+                const digits = phoneInput.value.slice(2).replace(/[^0-9]/g, '');
+                phoneInput.value = '+7' + digits;
+            }
+        });
+
+        // Ограничиваем ввод только цифрами после +7
+        phoneInput.addEventListener('keypress', (e) => {
+            if (!/[0-9]/.test(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        document.getElementById('registerForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const fullName = fullNameInput.value.trim();
+            const city = cityInput.value.trim();
+            const email = document.getElementById('email').value;
+            const phone = phoneInput.value;
+            const password = document.getElementById('password').value;
+            const repeatPassword = document.getElementById('repeatPassword').value;
+
+            // Проверка ФИО на минимум два слова
+            const nameParts = fullName.split(/\s+/).filter(part => part.length > 0);
+            if (nameParts.length < 2) {
+                alert('ФИО должно содержать минимум 2 слова (Фамилия и Имя)');
+                return;
+            }
+
+            // Проверка длины номера телефона
+            if (phone.length < 12) {
+                alert('Неверный номер телефона (Пример, +79006002020)');
+                return;
+            }
+
+            // Проверка минимальной длины пароля
+            if (password.length < 6) {
+                alert('Пароль должен содержать минимум 6 символов');
+                return;
+            }
+
+            // Проверка совпадения паролей
+            if (password !== repeatPassword) {
+                alert('Пароли не совпадают!');
+                return;
+            }
+
+            const user = { fullName, city, email, phone, password };
+            fetch('http://localhost:3000/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(user)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message === 'Регистрация успешна') {
+                    alert('Регистрация прошла успешно!');
+                    window.location.href = 'login.html';
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(error => console.error('Ошибка:', error));
+        });
+    </script>
+</body>
+</html>

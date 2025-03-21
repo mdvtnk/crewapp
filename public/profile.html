@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Личный кабинет</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Личный кабинет</h1>
+    </header>
+    <nav>
+        <a href="index.html">Вызовы</a>
+        <a href="create_call.html" onclick="clearEditCall()">Создать вызов</a>
+        <span>|</span>
+        <a href="profile.html" id="userFullName"></a>
+        <span id="crewNumberDisplay"></span>
+        <select id="crewStatus" class="crew-status-select">
+            <option value="Свободна">Свободна</option>
+            <option value="Выехал на вызов">Выехал на вызов</option>
+            <option value="Обед">Обед</option>
+            <option value="Пополнение ящика">Пополнение ящика</option>
+        </select>
+        <button id="logoutBtn" class="btn logout-btn"><img src="img/exit-button.svg"/></button>
+    </nav>   
+    <div class="profile-container">
+        <h2>Личный кабинет</h2>
+        <p><strong>ФИО:</strong> <span id="fullNameDisplay"></span></p>
+        <p><strong>Город:</strong> <span id="cityDisplay"></span></p>
+        <p><strong>Email:</strong> <span id="emailDisplay"></span></p>
+        <p><strong>Номер телефона:</strong> <span id="phoneDisplay"></span></p>
+        <button id="editBtn">Изменить</button>
+    </div>
+
+    <!-- Модальное окно для редактирования -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <h3>Изменить данные</h3>
+            <label for="newFullName">ФИО</label>
+            <input type="text" id="newFullName">
+            <label for="newCity">Город</label>
+            <input type="text" id="newCity">
+            <label for="newEmail">Email</label>
+            <input type="email" id="newEmail">
+            <label for="newPhone">Номер телефона</label>
+            <input type="tel" id="newPhone">    
+            <label for="newPassword">Пароль</label>
+            <input type="password" id="newPassword">
+            <button id="saveBtn">Сохранить изменения</button>
+            <button id="closeBtn">Закрыть</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const crewStatusSelect = document.getElementById('crewStatus');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const crewNumberDisplay = document.getElementById('crewNumberDisplay');
+
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Вы не авторизованы!');
+                window.location.href = 'login.html';
+                return;
+            }
+
+            // Загрузка профиля
+            const response = await fetch('/get-profile', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) {
+                alert('Ошибка загрузки профиля');
+                return;
+            }
+
+            const user = await response.json();
+            
+            document.getElementById('userFullName').textContent = `Сотрудник: ${user.fullName}`;
+            document.getElementById('fullNameDisplay').textContent = user.fullName;
+            document.getElementById('cityDisplay').textContent = user.city;
+            document.getElementById('emailDisplay').textContent = user.email;
+            document.getElementById('phoneDisplay').textContent = user.phone;
+            
+            // Отображаем номер бригады
+            if (user.crewNumber) {
+                crewNumberDisplay.textContent = ` | Бригада №${user.crewNumber}`;
+            }
+
+            // Устанавливаем статус бригады
+            if (user.crewStatus) {
+                crewStatusSelect.value = user.crewStatus;
+            }
+
+            // Обработчик изменения статуса бригады
+            crewStatusSelect.addEventListener('change', async () => {
+                const response = await fetch('/update-crew-status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ crewStatus: crewStatusSelect.value })
+                });
+
+                if (!response.ok) {
+                    alert('Ошибка обновления статуса бригады');
+                }
+            });
+
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    if (confirm('Вы уверены, что хотите выйти из аккаунта?')) {
+                        window.location.href = 'login.html';
+                    }
+                });
+            }
+
+            document.getElementById('editBtn').addEventListener('click', () => {
+                document.getElementById('newFullName').value = user.fullName;
+                document.getElementById('newCity').value = user.city;
+                document.getElementById('newEmail').value = user.email;
+                document.getElementById('newPhone').value = user.phone;
+                document.getElementById('newPassword').value = "";
+                editModal.style.display = 'flex';
+            });
+
+            document.getElementById('saveBtn').addEventListener('click', async () => {
+                const updatedUser = {
+                    userId: user._id,
+                    fullName: document.getElementById('newFullName').value,
+                    city: document.getElementById('newCity').value,
+                    email: document.getElementById('newEmail').value,
+                    phone: document.getElementById('newPhone').value,
+                    password: document.getElementById('newPassword').value
+                };
+
+                if (updatedUser.password && updatedUser.password.length < 6) {
+                    alert('Пароль должен содержать минимум 6 символов!');
+                    return;
+                }
+
+                const updateResponse = await fetch('/update-profile', {
+                    method: 'PUT',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(updatedUser)
+                });
+
+                if (!updateResponse.ok) {
+                    alert('Ошибка обновления профиля');
+                    return;
+                }
+
+                alert('Данные успешно обновлены!');
+                location.reload();
+            });
+
+            document.getElementById('closeBtn').addEventListener('click', () => {
+                editModal.style.display = 'none';
+            });
+        });
+    </script>
+</body>
+</html>

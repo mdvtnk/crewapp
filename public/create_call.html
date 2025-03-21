@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создание вызова</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal-content { background-color: white; padding: 20px; border-radius: 5px; width: 400px; max-width: 90%; }
+        .modal-content select, .modal-content button { margin-top: 10px; width: 100%; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Создание вызова</h1>
+    </header>
+
+    <nav>
+        <a href="index.html">Вызовы</a>
+        <a href="#">Создать вызов</a>
+        <span>|</span>
+        <a href="profile.html" id="userFullName"></a>
+        <span id="crewNumberDisplay"></span>
+        <select id="crewStatus" class="crew-status-select">
+            <option value="Свободна">Свободна</option>
+            <option value="Выехал на вызов">Выехал на вызов</option>
+            <option value="Обед">Обед</option>
+            <option value="Пополнение ящика">Пополнение ящика</option>
+        </select>
+        <button id="logoutBtn" class="btn logout-btn"><img src="img/exit-button.svg"/></button>
+    </nav>
+
+    <div class="container">
+        <h2>Добавить новый вызов</h2>
+        <form id="callForm">
+            <label for="address">Адрес</label>
+            <input type="text" id="address" name="address" placeholder="Введите адрес" required>
+            <label for="callerName">ФИО звонившего</label>
+            <input type="text" id="callerName" name="callerName" placeholder="Введите ФИО звонившего" required>
+            <label for="callerPhone">Номер телефона звонившего</label>
+            <input type="tel" id="callerPhone" name="callerPhone" maxlength="12" required> 
+            <label for="priority">Приоритет</label>
+            <select id="priority" name="priority" required>
+                <option value="Высокий">Высокий</option>
+                <option value="Средний">Средний</option>
+                <option value="Низкий">Низкий</option>
+            </select>
+            <label for="victimCount">Количество пострадавших</label>
+            <input type="number" id="victimCount" name="victimCount" min="1" value="1" required>
+            <div id="victimDetailsContainer">
+                <h3>Детали пострадавших</h3>
+                <div class="victim-details">
+                    <label for="victimAge1">Возраст пострадавшего 1</label>
+                    <input type="number" id="victimAge1" name="victimAge[]" min="0" placeholder="Введите возраст" required>
+                    <label for="victimGender1">Пол пострадавшего 1</label>
+                    <select id="victimGender1" name="victimGender[]" required>
+                        <option value="Не опознан">Не опознан</option>
+                        <option value="Мужской">Мужской</option>
+                        <option value="Женский">Женский</option>
+                    </select>
+                    <label for="condition1">Состояние пострадавшего 1</label>
+                    <textarea id="condition1" name="condition[]" rows="4" placeholder="Опишите состояние пациента" required></textarea>
+                </div>
+            </div>
+            <label for="additionalInfo">Дополнительная информация</label>
+            <textarea id="additionalInfo" name="additionalInfo" rows="3" placeholder="Введите дополнительную информацию"></textarea>
+            <label for="status">Статус вызова</label>
+            <select id="status" name="status" required>
+                <option value="Ожидание">Ожидание</option>
+                <option value="В работе">В работе</option>
+                <option value="Завершён">Завершён</option>
+            </select>
+            <button type="submit" class="btn">Сохранить</button>
+        </form>
+    </div>
+
+    <div id="assignCrewModal" class="modal">
+        <div class="modal-content">
+            <h3>Назначить бригаду</h3>
+            <select id="crewSelect"></select>
+            <button id="assignCrewBtn">Назначить</button>
+            <button id="skipAssignBtn">Пропустить</button>
+        </div>
+    </div>
+
+    <script>
+        const addressInput = document.getElementById('address');
+        const phoneInput = document.getElementById('callerPhone');
+        
+        phoneInput.value = '+7';
+        phoneInput.addEventListener('input', (e) => {
+            if (!phoneInput.value.startsWith('+7')) phoneInput.value = '+7';
+        });
+        phoneInput.addEventListener('keypress', (e) => {
+            if (!/[0-9]/.test(e.key)) e.preventDefault();
+        });
+        
+    
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Вы не авторизованы!');
+                window.location.href = 'login.html';
+                return;
+            }
+    
+            const response = await fetch('/get-profile', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!response.ok) {
+                alert('Ошибка загрузки профиля');
+                window.location.href = 'login.html';
+                return;
+            }
+            const user = await response.json();
+            document.getElementById('userFullName').textContent = `Сотрудник: ${user.fullName}`;
+            if (user.crewNumber) {
+                document.getElementById('crewNumberDisplay').textContent = ` | Бригада №${user.crewNumber}`;
+            }
+    
+            const crewStatusSelect = document.getElementById('crewStatus');
+            if (user.crewStatus) crewStatusSelect.value = user.crewStatus;
+    
+            crewStatusSelect.addEventListener('change', async () => {
+                const updateResponse = await fetch('/update-crew-status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ crewStatus: crewStatusSelect.value })
+                });
+                if (!updateResponse.ok) alert('Ошибка обновления статуса бригады');
+            });
+    
+            const logoutBtn = document.getElementById('logoutBtn');
+            logoutBtn.addEventListener('click', () => {
+                if (confirm('Вы уверены, что хотите выйти?')) {
+                    localStorage.removeItem('token');
+                    window.location.href = 'login.html';
+                }
+            });
+    
+            const form = document.querySelector('#callForm');
+            const victimCountInput = document.querySelector('#victimCount');
+            const victimDetailsContainer = document.querySelector('#victimDetailsContainer');
+            const assignCrewModal = document.getElementById('assignCrewModal');
+            const crewSelect = document.getElementById('crewSelect');
+            const assignCrewBtn = document.getElementById('assignCrewBtn');
+            const skipAssignBtn = document.getElementById('skipAssignBtn');
+    
+            const editCall = JSON.parse(localStorage.getItem('editCall'));
+            if (editCall && editCall._id) {
+                document.querySelector('h1').textContent = 'Редактирование вызова';
+                document.querySelector('h2').textContent = 'Редактировать вызов';
+                document.querySelector('#address').value = editCall.address || '';
+                document.querySelector('#callerName').value = editCall.callerName || '';
+                document.querySelector('#callerPhone').value = editCall.callerPhone || '';
+                document.querySelector('#priority').value = editCall.priority || 'Средний';
+                document.querySelector('#status').value = editCall.status || 'Ожидание';
+                document.querySelector('#victimCount').value = editCall.victimCount || 1;
+                document.querySelector('#additionalInfo').value = editCall.additionalInfo || '';
+                updateVictimFields(); // Заполняем поля пострадавших
+            } else {
+                updateVictimFields(); // Инициализируем поля для нового вызова
+            }
+    
+            function updateVictimFields() {
+                const count = parseInt(victimCountInput.value, 10) || 1;
+                victimDetailsContainer.innerHTML = `<h3>Детали пострадавших</h3>`;
+                const editCall = JSON.parse(localStorage.getItem('editCall'));
+    
+                for (let i = 1; i <= count; i++) {
+                    const victimDetails = document.createElement('div');
+                    victimDetails.className = 'victim-details';
+                    victimDetails.innerHTML = `
+                        <label for="victimAge${i}">Возраст пострадавшего ${i}</label>
+                        <input type="number" id="victimAge${i}" name="victimAge[]" min="0" placeholder="Введите возраст" required>
+                        <label for="victimGender${i}">Пол пострадавшего ${i}</label>
+                        <select id="victimGender${i}" name="victimGender[]" required>
+                            <option value="Не опознан">Не опознан</option>
+                            <option value="Мужской">Мужской</option>
+                            <option value="Женский">Женский</option>
+                        </select>
+                        <label for="condition${i}">Состояние пострадавшего ${i}</label>
+                        <textarea id="condition${i}" name="condition[]" rows="4" placeholder="Опишите состояние пациента" required></textarea>
+                    `;
+                    victimDetailsContainer.appendChild(victimDetails);
+    
+                    // Заполняем поля данными из editCall, если редактируем
+                    if (editCall && Array.isArray(editCall.victims) && editCall.victims[i - 1]) {
+                        const victim = editCall.victims[i - 1];
+                        document.querySelector(`#victimAge${i}`).value = victim.age || '';
+                        document.querySelector(`#victimGender${i}`).value = victim.gender || 'Не опознан';
+                        document.querySelector(`#condition${i}`).value = victim.condition || '';
+                    }
+                }
+            }
+    
+            victimCountInput.addEventListener('input', updateVictimFields);
+    
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+    
+                const victimCount = parseInt(victimCountInput.value, 10) || 1;
+                const callData = {
+                    address: document.querySelector('#address').value.trim(),
+                    callerName: document.querySelector('#callerName').value.trim(),
+                    callerPhone: document.querySelector('#callerPhone').value.trim(),
+                    priority: document.querySelector('#priority').value,
+                    status: document.querySelector('#status').value,
+                    victimCount: victimCount,
+                    victims: Array.from(document.querySelectorAll('.victim-details')).slice(0, victimCount).map((_, i) => ({
+                        age: parseInt(document.querySelector(`#victimAge${i + 1}`).value, 10) || 0,
+                        gender: document.querySelector(`#victimGender${i + 1}`).value || 'Не опознан',
+                        condition: document.querySelector(`#condition${i + 1}`).value.trim() || 'Не указано'
+                    })),
+                    additionalInfo: document.querySelector('#additionalInfo').value.trim()
+                };
+    
+                // Проверка на пустые обязательные поля
+                if (!callData.address || !callData.callerName || !callData.callerPhone) {
+                    alert('Заполните все обязательные поля: адрес, ФИО звонившего и номер телефона');
+                    return;
+                }
+                if (callData.victims.length === 0) {
+                    alert('Добавьте хотя бы одного пострадавшего');
+                    return;
+                }
+                for (const victim of callData.victims) {
+                    if (!victim.condition) {
+                        alert('Укажите состояние каждого пострадавшего');
+                        return;
+                    }
+                }
+    
+                let response;
+                if (editCall && editCall._id) {
+                    // Редактирование существующего вызова
+                    response = await fetch(`/update-call/${editCall._id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(callData)
+                    });
+                } else {
+                    // Создание нового вызова
+                    response = await fetch('/create-call', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(callData)
+                    });
+                }
+    
+                const result = await response.json();
+                if (response.ok) {
+                    alert(editCall ? 'Вызов успешно обновлён!' : 'Вызов успешно сохранён!');
+                    localStorage.removeItem('editCall');
+                    if (!editCall) {
+                        showAssignCrewModal(result.callId);
+                    } else {
+                        window.location.href = 'index.html';
+                    }
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            });
+    
+            async function showAssignCrewModal(callId) {
+                const crewsResponse = await fetch('/get-free-crews', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const crews = await crewsResponse.json();
+    
+                crewSelect.innerHTML = '<option value="">Выберите бригаду</option>';
+                crews.forEach(crew => {
+                    const option = document.createElement('option');
+                    option.value = crew.id;
+                    option.textContent = `Бригада №${crew.crewNumber}`;
+                    crewSelect.appendChild(option);
+                });
+    
+                assignCrewModal.style.display = 'flex';
+    
+                assignCrewBtn.onclick = async () => {
+                    const crewId = crewSelect.value;
+                    if (!crewId) {
+                        alert('Выберите бригаду!');
+                        return;
+                    }
+    
+                    const assignResponse = await fetch('/assign-crew-to-call', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ callId, crewId })
+                    });
+    
+                    const assignResult = await assignResponse.json();
+                    if (assignResponse.ok) {
+                        // Обновляем статус вызова на "В работе"
+                        await fetch(`/update-call/${callId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ status: 'В работе' })
+                        });
+    
+                        // Обновляем статус бригады на "Выехал на вызов"
+                        await fetch('/update-crew-status', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ crewStatus: 'Выехал на вызов' })
+                        });
+    
+                        alert('Бригада назначена!');
+                        assignCrewModal.style.display = 'none';
+                        window.location.href = 'index.html';
+                    } else {
+                        alert(assignResult.message);
+                    }
+                };
+    
+                skipAssignBtn.onclick = () => {
+                    assignCrewModal.style.display = 'none';
+                    window.location.href = 'index.html';
+                };
+            }
+        });
+    </script>
+</body>
+</html>

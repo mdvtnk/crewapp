@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список вызовов</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Список вызовов</h1>
+    </header>
+
+    <nav>
+        <a href="#">Вызовы</a>
+        <a href="create_call.html" onclick="clearEditCall()">Создать вызов</a>
+        <span>|</span>
+        <a href="profile.html" id="userFullName"></a>
+        <span id="crewNumberDisplay"></span>
+        <select id="crewStatus" class="crew-status-select">
+            <option value="Свободна">Свободна</option>
+            <option value="Выехал на вызов">Выехал на вызов</option>
+            <option value="Обед">Обед</option>
+            <option value="Пополнение ящика">Пополнение ящика</option>
+        </select>
+        <button id="logoutBtn" class="btn logout-btn"><img src="img/exit-button.svg"/></button>
+    </nav>    
+    <div class="container">
+        <input type="text" id="searchInput" placeholder="Поиск по адресу или ID">
+        <h2>Активные вызовы</h2>
+        <table id="activeCallsTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Адрес</th>
+                    <th>Приоритет</th>
+                    <th>Статус</th>
+                    <th>Бригада</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    
+    <div class="container">
+        <h2>Завершённые вызовы</h2>
+        <table id="completedCallsTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Адрес</th>
+                    <th>Приоритет</th>
+                    <th>Статус</th>
+                    <th>Бригада</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="detailsModal" class="modal">
+        <div class="modal-content">
+            <h3>Детали вызова</h3>
+            <p id="callDetails"></p>
+            <button id="closeDetailsBtn" class="btn">Закрыть</button>
+        </div>
+    </div>    
+    <div id="confirmationModal" class="modal">
+        <div class="modal-content">
+            <p id="modalMessage"></p>
+            <textarea id="completionComment" placeholder="Комментарий при завершении"></textarea>
+            <div class="modal-actions">
+                <button id="confirmBtn" class="btn">Подтвердить</button>
+                <button id="cancelBtn" class="btn">Отмена</button>
+            </div>
+        </div>
+    </div>
+    <div id="assignCrewModal" class="modal">
+        <div class="modal-content">
+            <p>Назначьте бригаду для вызова</p>
+            <select id="crewSelect"></select>
+            <div class="modal-actions">
+                <button id="assignConfirmBtn" class="btn">Назначить</button>
+                <button id="assignCancelBtn" class="btn">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function clearEditCall() {
+            localStorage.removeItem('editCall');
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Вы не авторизованы!');
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const activeCallsTable = document.querySelector('#activeCallsTable tbody');
+            const completedCallsTable = document.querySelector('#completedCallsTable tbody');
+            const crewStatusSelect = document.getElementById('crewStatus');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const userFullName = document.getElementById('userFullName');
+            const crewNumberDisplay = document.getElementById('crewNumberDisplay');
+            const searchInput = document.getElementById('searchInput');
+
+            const profileResponse = await fetch('/get-profile', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const user = await profileResponse.json();
+            userFullName.textContent = `Сотрудник: ${user.fullName}`;
+            if (user.crewNumber) {
+                crewNumberDisplay.textContent = ` | Бригада №${user.crewNumber}`;
+                crewStatusSelect.value = user.crewStatus || 'Свободна';
+            }
+
+            crewStatusSelect.addEventListener('change', async () => {
+                await fetch('/update-crew-status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` }
+                    ,
+                    body: JSON.stringify({ crewStatus: crewStatusSelect.value })
+                });
+            });
+
+            logoutBtn.addEventListener('click', () => {
+                if (confirm('Вы уверены, что хотите выйти?')) {
+                    localStorage.removeItem('token');
+                    window.location.href = 'login.html';
+                }
+            });
+
+            async function fetchCalls() {
+                const response = await fetch('/get-calls', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                return await response.json();
+            }
+
+            async function getCrewNumber(crewId) {
+                if (!crewId) return 'Не назначена';
+                const response = await fetch(`/get-crew-number/${crewId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const crew = await response.json();
+                return crew ? crew.crewNumber : 'Неизвестно';
+            }
+
+            async function fetchFreeCrews() {
+                const response = await fetch('/get-free-crews', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                return await response.json();
+            }
+
+            async function renderCalls(searchTerm = '') {
+                const calls = await fetchCalls();
+                activeCallsTable.innerHTML = '';
+                completedCallsTable.innerHTML = '';
+
+                const filteredCalls = calls.filter(call => 
+                    call.address.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                    call._id.toString().includes(searchTerm)
+                );
+
+                for (const call of filteredCalls) {
+                    const crewNumber = await getCrewNumber(call.crewId);
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${call._id}</td>
+                        <td>${call.address}</td>
+                        <td>${call.priority}</td>
+                        <td>
+                            <select data-id="${call._id}">
+                                <option value="Ожидание" ${call.status === 'Ожидание' ? 'selected' : ''}>Ожидание</option>
+                                <option value="В работе" ${call.status === 'В работе' ? 'selected' : ''}>В работе</option>
+                                <option value="Завершён" ${call.status === 'Завершён' ? 'selected' : ''}>Завершён</option>
+                            </select>
+                        </td>
+                        <td>
+                            ${call.status === 'Ожидание' && crewNumber === 'Не назначена' 
+                                ? `<button class="accept-btn" data-id="${call._id}">Принять</button>` 
+                                : crewNumber}
+                        </td>
+                        <td>
+                            <button data-id="${call._id}" class="details-btn"><img src="img/more-button.svg" alt="Подробнее"/></button>
+                            <button data-id="${call._id}" class="edit-btn"><img src="img/edit-button.svg" alt="Изменить"/></button>
+                            <button data-id="${call._id}" class="delete-btn"><img src="img/delete-button.svg" alt="Удалить"/></button>
+                        </td>
+                    `;
+
+                    if (call.status === 'Завершён') {
+                        completedCallsTable.prepend(row);
+                    } else {
+                        activeCallsTable.prepend(row);
+                    }
+                }
+
+                addEventListeners();
+            }
+
+            searchInput.addEventListener('input', () => {
+                renderCalls(searchInput.value);
+            });
+
+            function addEventListeners() {
+                document.querySelectorAll('select[data-id]').forEach(selector => {
+                    selector.addEventListener('change', async (e) => {
+                        const callId = e.target.dataset.id;
+                        const newStatus = e.target.value;
+
+                        const handleStatusChange = async (comment = '') => {
+                            const updateData = { status: newStatus };
+                            if (newStatus === 'Завершён') {
+                                updateData.closedAt = new Date();
+                                if (comment) updateData.additionalInfo = `${currentCall.additionalInfo || ''}<br><strong>Завершён:</strong> ${comment}`.trim();
+                            }
+
+                            await fetch(`/update-call/${callId}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}` }
+                                ,
+                                body: JSON.stringify(updateData)
+                            });
+
+                            if (newStatus === 'Завершён') {
+                                crewStatusSelect.value = 'Свободна';
+                            }
+                            renderCalls(searchInput.value);
+                        };
+
+                        const currentCall = (await fetchCalls()).find(c => c._id == callId);
+                        if (newStatus === 'Завершён') {
+                            showModal('Вы уверены, что хотите завершить вызов?', handleStatusChange);
+                        } else if (newStatus === 'В работе' && !currentCall.crewId) {
+                            showAssignCrewModal(callId);
+                        } else {
+                            handleStatusChange();
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.accept-btn').forEach(button => {
+                    button.addEventListener('click', async (e) => {
+                        const callId = e.currentTarget.dataset.id;
+                        if (!callId || !user.crewId) {
+                            alert('Ошибка: ID вызова или бригады не найден');
+                            return;
+                        }
+
+                        const response = await fetch('/assign-crew-to-call', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}` }
+                            ,
+                            body: JSON.stringify({ callId, crewId: user.crewId })
+                        });
+
+                        if (response.ok) {
+                            await fetch(`/update-call/${callId}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}` }
+                                ,
+                                body: JSON.stringify({ status: 'В работе' })
+                            });
+                            crewStatusSelect.value = 'Выехал на вызов';
+                            await fetch('/update-crew-status', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}` }
+                                ,
+                                body: JSON.stringify({ crewStatus: 'Выехал на вызов' })
+                            });
+                            renderCalls(searchInput.value);
+                        } else {
+                            const errorData = await response.json();
+                            alert('Ошибка при принятии вызова: ' + errorData.message);
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const callId = e.currentTarget.dataset.id;
+                        if (!callId) {
+                            alert('ID вызова не найден');
+                            return;
+                        }
+                        showModal('Вы уверены, что хотите удалить вызов?', async () => {
+                            const response = await fetch(`/delete-call/${callId}`, {
+                                method: 'DELETE',
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            if (response.ok) {
+                                crewStatusSelect.value = 'Свободна';
+                                await fetch('/update-crew-status', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${token}` }
+                                    ,
+                                    body: JSON.stringify({ crewStatus: 'Свободна' })
+                                });
+                                renderCalls(searchInput.value);
+                            } else {
+                                const errorData = await response.json();
+                                alert('Ошибка при удалении вызова: ' + errorData.message);
+                            }
+                        });
+                    });
+                });
+
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', async (e) => {
+                        const callId = e.currentTarget.dataset.id;
+                        if (!callId) {
+                            alert('ID вызова не найден');
+                            return;
+                        }
+                        const response = await fetch(`/get-call/${callId}`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            alert('Ошибка загрузки данных вызова: ' + errorData.message);
+                            return;
+                        }
+                        const callData = await response.json();
+                        localStorage.setItem('editCall', JSON.stringify(callData));
+                        window.location.href = 'create_call.html';
+                    });
+                });
+
+                document.querySelectorAll('.details-btn').forEach(button => {
+                    button.addEventListener('click', async (e) => {
+                        const callId = e.currentTarget.dataset.id;
+                        if (!callId) {
+                            alert('ID вызова не найден');
+                            return;
+                        }
+                        await showDetailsModal(callId);
+                    });
+                });
+
+                document.getElementById('closeDetailsBtn').addEventListener('click', () => {
+                    document.getElementById('detailsModal').style.display = 'none';
+                });
+            }
+
+            async function showDetailsModal(callId) {
+                try {
+                    const response = await fetch(`/get-call/${callId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Ошибка сервера: ${response.status} - ${await response.text()}`);
+                    }
+
+                    const call = await response.json();
+                    const crewNumber = await getCrewNumber(call.crewId);
+
+                    let victimsHTML = '';
+                    if (Array.isArray(call.victims) && call.victims.length > 0) {
+                        victimsHTML = call.victims.map(v => `
+                            <div>
+                                <strong>Возраст:</strong> ${v.age || '—'} лет<br>
+                                <strong>Пол:</strong> ${v.gender || '—'}<br>
+                                <strong>Состояние:</strong> ${v.condition || '—'}
+                            </div>
+                            <hr>
+                        `).join('');
+                    } else {
+                        victimsHTML = 'Нет данных';
+                    }
+
+                    const callDetails = document.getElementById('callDetails');
+                    callDetails.innerHTML = `
+                        <strong>Адрес:</strong> ${call.address || '—'}<br>
+                        <strong>Приоритет:</strong> ${call.priority || '—'}<br>
+                        <strong>Звонивший:</strong> ${call.callerName || '—'} (${call.callerPhone || '—'})<br>
+                        <strong>Количество пострадавших:</strong> ${call.victimCount || 0}<br>
+                        <strong>Пострадавшие:</strong><br><hr>
+                        ${victimsHTML}
+                        <strong>Доп. информация:</strong> ${call.additionalInfo || '—'}<br>
+                        <strong>Дата создания:</strong> ${call.createdAt ? new Date(call.createdAt).toLocaleString() : '—'}<br>
+                        <strong>Дата завершения:</strong> ${call.closedAt ? new Date(call.closedAt).toLocaleString() : '—'}<br>
+                        <strong>Статус:</strong> ${call.status || '—'}<br>
+                        <strong>Бригада:</strong> ${crewNumber}
+                    `;
+                    document.getElementById('detailsModal').style.display = 'flex';
+                } catch (error) {
+                    console.error('Ошибка при загрузке деталей вызова:', error);
+                    alert('Не удалось загрузить детали вызова: ' + error.message);
+                }
+            }
+
+            const modal = document.getElementById('confirmationModal');
+            const modalMessage = document.getElementById('modalMessage');
+            const completionComment = document.getElementById('completionComment');
+            const confirmBtn = document.getElementById('confirmBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            let confirmCallback = null;
+
+            function showModal(message, callback) {
+                modalMessage.textContent = message;
+                completionComment.style.display = message.includes('завершить') ? 'block' : 'none';
+                completionComment.value = '';
+                confirmCallback = callback;
+                modal.style.display = 'flex';
+            }
+
+            confirmBtn.addEventListener('click', () => {
+                if (confirmCallback) confirmCallback(completionComment.value);
+                modal.style.display = 'none';
+            });
+
+            cancelBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+
+            const assignModal = document.getElementById('assignCrewModal');
+            const crewSelect = document.getElementById('crewSelect');
+            const assignConfirmBtn = document.getElementById('assignConfirmBtn');
+            const assignCancelBtn = document.getElementById('assignCancelBtn');
+            let assignCallback = null;
+
+            async function showAssignCrewModal(callId) {
+                const freeCrews = await fetchFreeCrews();
+                crewSelect.innerHTML = '<option value="">Выберите бригаду</option>' + 
+                    freeCrews.map(crew => `<option value="${crew.id}">${crew.crewNumber}</option>`).join('');
+                
+                assignCallback = async () => {
+                    const crewId = crewSelect.value;
+                    if (!crewId) {
+                        alert('Выберите бригаду');
+                        return;
+                    }
+                    await fetch('/assign-crew-to-call', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}` }
+                        ,
+                        body: JSON.stringify({ callId, crewId })
+                    });
+                    await fetch(`/update-call/${callId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}` }
+                        ,
+                        body: JSON.stringify({ status: 'В работе' })
+                    });
+                    renderCalls(searchInput.value);
+                };
+                assignModal.style.display = 'flex';
+            }
+
+            assignConfirmBtn.addEventListener('click', () => {
+                if (assignCallback) assignCallback();
+                assignModal.style.display = 'none';
+            });
+
+            assignCancelBtn.addEventListener('click', () => {
+                assignModal.style.display = 'none';
+                renderCalls(searchInput.value);
+            });
+
+            await renderCalls();
+        });
+    </script>
+</body>
+</html>
